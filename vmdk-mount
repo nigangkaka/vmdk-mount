@@ -1,0 +1,130 @@
+#!/bin/sh
+
+# Mount partitions in vmdk Script
+#
+# SPDX-License-Identifier: MIT
+#
+
+# Read the arguments to variables
+#
+# $1: vmdk file
+# $2: partition number
+# $3: mount point
+
+vmdk_file=$1
+part_no=$2
+mount_point=$3
+
+# check if arguments number is 3
+if [ $# -ne 3 ]; then
+    echo "Usage: $0 <vmdk file> <partition number> <mount point>"
+    exit 1
+fi
+
+# Check if vmdk_file is exist
+if [ ! -f "${vmdk_file}" ]; then
+    echo "${vmdk_file} is not exist"
+    exit 1
+fi
+
+# check if part_no is a integer
+if [ ! "${part_no}" -eq "${part_no}" 2>/dev/null ]; then
+    echo "${part_no} is not a integer"
+    exit 1
+fi
+
+
+#check if mount_point is exist
+if [ ! -d "${mount_point}" ]; then
+    echo "${mount_point} is not a folder"
+    exit 2
+fi
+
+
+# check if mount_point is empty or not
+if [ "$(ls -A ${mount_point})" ]; then
+    echo "${mount_point} is not empty"
+    exit 3
+fi
+
+
+: '
+❯ sudo vmware-mount -p ./test/vmdk_demo.vmdk
+[sudo] password for nigang:
+Nr      Start       Size Type Id Sytem
+-- ---------- ---------- ---- -- ------------------------
+ 1       2048     204800  GPT EE Linux FS
+ 2     206848     409600  GPT EE Linux FS
+ 3     616448  133599232  GPT EE Linux FS
+'
+
+echo "${vmdk_file}"
+
+
+part_valid=$(sudo vmware-mount -p "${vmdk_file}" | grep -Po "^\s*${part_no}\s+\d+\s+\d+")
+# check if part_valid is empty
+if [ -z "${part_valid}" ]; then
+    echo "Partition ${part_no} is not exist"
+    exit 3
+fi
+
+
+
+part_infos=(${part_valid})
+start_sector=${part_infos[1]}
+
+
+let start_addr=${start_sector}*512
+
+epoch=$(date +%s)
+
+
+flat_dir="/tmp/vmdk_${epoch}"
+mkdir -p ${flat_dir}
+
+
+echo "Mount a flat representation of the disk to ${flat_dir}/flat"
+
+sudo vmware-mount  -f ${vmdk_file} ${flat_dir}
+file ${flat_dir}/flat
+
+
+
+echo "Create a loop device at address ${start_addr} sector:${start_sector}"
+
+
+# use grep to match the loop device number start with /dev/loop and only print number
+max_loop_device=$(sudo losetup -a | grep -Po "^/dev/loop\d+" | grep -Po "\d+" | sort -n | tail -n 1)
+
+# create a new loop device plus 1
+let new_loop_device_no=${max_loop_device}+5
+new_loop_device="/dev/loop${new_loop_device_no}"
+
+echo "We create a ${new_loop_device}"
+
+# Check if new_loop_device is exist
+if [ -e "${new_loop_device}" ]; then
+    echo "${new_loop_device} is exist"
+    exit 4
+fi
+
+
+echo "sudo losetup -o ${start_addr} ${new_loop_device} ${flat_dir}/flat"
+
+sudo losetup -o ${start_addr} ${new_loop_device} ${flat_dir}/flat
+
+echo "Now decrypt the loop device"
+sudo cryptsetup open ${new_loop_device} "vmdk_${epoch}"
+
+# check if /dev/mapper/vmdk_${epoch} is exist
+if [ ! -b "/dev/mapper/vmdk_${epoch}" ]; then
+    echo "/dev/mapper/vmdk_${epoch} is not exist"
+    exit 4
+fi
+
+# mount /dev/map/vmdk_${epoch} to ${mount_point}
+echo "Mount /dev/map/vmdk_${epoch} to ${mount_point}"
+sudo mount /dev/mapper/vmdk_${epoch} ${mount_point}
+
+
+#1637744967

@@ -1,0 +1,81 @@
+#!/bin/sh
+
+# UnMount partitions in vmdk file
+#
+# SPDX-License-Identifier: MIT
+#
+
+# Read the arguments to variables
+#
+# $1: mount point
+
+mount_point=$1
+
+# Get the abs path of the mount_point
+#
+mount_point=`readlink -f $mount_point`
+
+# check if the mount_point is a directory
+#
+if [ ! -d $mount_point ]; then
+    echo "Error: $mount_point is not a directory"
+    exit 1
+fi
+
+# 1. get the output of mount command and grep the mount_point
+# The device mappger
+dev_mapper=$(mount | grep $mount_point | awk '{print $1}')
+
+# check if dev_mapper is empty
+#
+if [ -z "$dev_mapper" ]; then
+    echo "Error: $mount_point is not mounted"
+    exit 1
+fi
+
+sudo umount $mount_point
+
+# 1. get the output of command 'cryptsetup status $dev_mappger'
+# 2. Find the line starts with string '\s+loop:'
+# 3. get the loop device
+#
+loop_dev=$(sudo cryptsetup status $dev_mapper | grep -P '\s+device:'| awk '{print $2}')
+flat=$(sudo cryptsetup status $dev_mapper | grep -P '\s+loop:'| awk '{print $2}')
+
+echo "$loop_dev"
+echo "$flat"
+
+echo "Now close $dev_mapper"
+sudo cryptsetup close $dev_mapper
+
+echo "Now detach the loop device "
+sudo losetup -d $loop_dev
+
+# wait for the loop device to be detached
+#
+sleep 1
+
+
+
+# get the output of command 'losetup -O name' and check if loop_dev is in the output
+#   if yes, then the loop device is still attached
+#   if no, then the loop device is detached
+#
+if [ -n "$(losetup -O name | grep $loop_dev)" ]; then
+    echo "detach ${loop_dev} fails"
+    exit 1
+else
+    echo "detach ${loop_dev} successfully"
+fi
+
+
+echo "Now vmware-mount unmount the flat "
+# Get the output of command 'sudo vmware-mount -L' and grep the flat
+#
+vmdk_file=$(sudo vmware-mount -L | grep $flat | awk '{print $1}')
+
+echo "Find vmdk ${vmdk_file}"
+
+sudo vmware-mount -k ${vmdk_file}
+
+
