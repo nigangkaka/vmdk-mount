@@ -4,7 +4,7 @@ A shell script to mount partitions in .vmdk virtual disk.
 
 ## Prerequisite
 
-Please make sure you had install "vmware" and there is a `/usr/bin/vmware-mount` exist.
+Please make sure you had install "vmware" and `/usr/bin/vmware-mount` exists.
 
 
 
